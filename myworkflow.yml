@@ -1,0 +1,44 @@
+name: D8 Online PC
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 */5 * * *'
+
+jobs:
+  run-online-pc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 370
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup SSH
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server
+          sudo systemctl enable ssh && sudo systemctl start ssh
+          echo "root:D8RunnerPass!" | sudo chpasswd
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo systemctl restart sshd
+      - name: Ngrok Tunnel
+        continue-on-error: true
+        run: |
+          curl -sL https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update -qq && sudo apt-get install -y -qq ngrok
+          ngrok config add-authtoken ${{ secrets.NGROK_TOKEN }}
+          nohup ngrok tcp 22 --log=stdout > /tmp/ngrok.log 2>&1 &
+          sleep 5
+      - name: Tailscale
+        continue-on-error: true
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo tailscale up --authkey=${{ secrets.TS_AUTHKEY }} --hostname=d8-pc
+      - name: Connection Info
+        run: |
+          echo "========== D8 =========="
+          echo "User: root | Pass: D8RunnerPass!"
+          curl -s http://127.0.0.1:4040/api/tunnels 2>/dev/null | python3 -c "import sys,json;[print(t['public_url']) for t in json.load(sys.stdin).get('tunnels',[]) if 'public_url' in t]" 2>/dev/null || true
+          tailscale ip -4 2>/dev/null || true
+      - name: Keep Alive
+        run: sleep 21000
