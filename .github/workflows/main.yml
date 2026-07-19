@@ -22,30 +22,28 @@ jobs:
         run: |
           curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
           chmod +x /tmp/bore
-          # Run bore in background
           nohup /tmp/bore local 22 --to bore.pub > /tmp/bore.log 2>&1 &
-          # Wait up to 40 seconds for connection
+          # Wait up to 40s for the port
           for i in $(seq 1 40); do
             sleep 1
-            if grep -q "remote_port=" /tmp/bore.log 2>/dev/null; then
+            if [ -s /tmp/bore.log ] && grep -q "remote_port" /tmp/bore.log 2>/dev/null; then
               break
             fi
           done
           echo "=== BORE LOG ==="
           cat /tmp/bore.log
-          echo "=== PORT ==="
-          PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2)
+          echo "=== PORT EXTRACTION ==="
+          # Try sed first
+          PORT=$(sed -n 's/.*remote_port=\([0-9][0-9]*\).*/\1/p' /tmp/bore.log 2>/dev/null | head -1)
+          if [ -z "$PORT" ]; then
+            # Try grep as fallback
+            PORT=$(grep -oE 'remote_port=[0-9]+' /tmp/bore.log 2>/dev/null | head -1 | cut -d= -f2)
+          fi
           echo "PORT=$PORT"
-          # Save to env for later steps
           echo "PORT=$PORT" >> $GITHUB_ENV
       - name: Keep Alive
         run: |
           PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2)
           echo "D8 PC SSH connection:"
           echo "sshpass -p D8RunnerPass! ssh -o StrictHostKeyChecking=no root@bore.pub -p $PORT"
-          echo "Or: ssh -p $PORT root@bore.pub (password: D8RunnerPass!)"
-          while true; do
-            sleep 60
-            PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2)
-            echo "$(date -u) ALIVE bore.pub:$PORT"
-          done
+          while true; do sleep 60; PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2); echo "$(date -u) ALIVE bore.pub:$PORT"; done
