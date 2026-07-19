@@ -1,0 +1,42 @@
+name: D8 Online PC
+on: workflow_dispatch
+jobs:
+  d8-runner:
+    runs-on: ubuntu-latest
+    timeout-minutes: 370
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup SSH
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq openssh-server
+          sudo systemctl enable ssh
+          sudo systemctl start ssh
+          echo "root:D8RunnerPass!" | sudo chpasswd
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          sudo systemctl restart sshd
+          echo "SSH ready on port 22"
+      - name: Bore Tunnel
+        continue-on-error: true
+        run: |
+          curl -sL https://github.com/ekzhang/bore/releases/download/v0.5.2/bore-v0.5.2-x86_64-unknown-linux-musl.tar.gz | tar xz -C /tmp
+          chmod +x /tmp/bore
+          nohup /tmp/bore local 22 --to bore.pub > /tmp/bore.log 2>&1 &
+          sleep 20
+          echo "=== BORE LOG ==="
+          cat /tmp/bore.log
+          echo ""
+          PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2)
+          echo "PORT=$PORT"
+          echo "PORT=$PORT" >> $GITHUB_ENV
+          echo "### D8 ONLINE PC" >> $GITHUB_STEP_SUMMARY
+          echo "| Host | bore.pub |" >> $GITHUB_STEP_SUMMARY
+          echo "| Port | $PORT |" >> $GITHUB_STEP_SUMMARY
+          echo "| User | root |" >> $GITHUB_STEP_SUMMARY
+          echo "| Pass | D8RunnerPass! |" >> $GITHUB_STEP_SUMMARY
+      - name: Keep Alive
+        run: |
+          PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2)
+          echo "D8 PC SSH: sshpass -p D8RunnerPass! ssh -o StrictHostKeyChecking=no root@bore.pub -p $PORT"
+          while true; do sleep 60; PORT=$(grep -o 'remote_port=[0-9]*' /tmp/bore.log | head -1 | cut -d= -f2); echo "$(date -u) ALIVE bore.pub:$PORT"; done
